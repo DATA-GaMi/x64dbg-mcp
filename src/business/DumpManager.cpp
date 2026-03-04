@@ -17,10 +17,15 @@
 
 #ifdef XDBG_SDK_AVAILABLE
 #include "_scriptapi_module.h"  // For Script::Module::EntryFromAddr
+#include <bridgelist.h>
 #endif
 
 namespace MCP {
 namespace {
+
+std::filesystem::path ToFilesystemPath(const std::string& utf8Path) {
+    return std::filesystem::u8path(utf8Path);
+}
 
 struct SectionLayout {
     uint32_t virtualAddress = 0;
@@ -144,6 +149,90 @@ std::string ToLowerAscii(std::string value) {
     );
     return value;
 }
+
+std::string CanonicalText(const std::string& value) {
+    return ToLowerAscii(StringUtils::FixUtf8Mojibake(value));
+}
+
+std::string BaseNameFromPath(const std::string& path) {
+    const size_t pos = path.find_last_of("\\/");
+    if (pos == std::string::npos) {
+        return path;
+    }
+    return path.substr(pos + 1);
+}
+
+std::string StripExtension(const std::string& fileName) {
+    const size_t dot = fileName.find_last_of('.');
+    if (dot == std::string::npos || dot == 0) {
+        return fileName;
+    }
+    return fileName.substr(0, dot);
+}
+
+#ifdef XDBG_SDK_AVAILABLE
+bool ModuleMatchesQuery(const Script::Module::ModuleInfo& mod, const std::string& query) {
+    if (query.empty()) {
+        return false;
+    }
+
+    const std::string queryLower = CanonicalText(query);
+    const std::string name = StringUtils::FixUtf8Mojibake(mod.name);
+    const std::string path = StringUtils::FixUtf8Mojibake(mod.path);
+    const std::string fileName = BaseNameFromPath(path);
+
+    const std::string nameLower = CanonicalText(name);
+    const std::string pathLower = CanonicalText(path);
+    const std::string fileLower = CanonicalText(fileName);
+
+    if (queryLower == nameLower || queryLower == pathLower || queryLower == fileLower) {
+        return true;
+    }
+
+    const bool hasWildcard = queryLower.find('*') != std::string::npos ||
+                             queryLower.find('?') != std::string::npos;
+    if (hasWildcard) {
+        if (StringUtils::WildcardMatchUtf8(queryLower, nameLower) ||
+            StringUtils::WildcardMatchUtf8(queryLower, pathLower) ||
+            StringUtils::WildcardMatchUtf8(queryLower, fileLower)) {
+            return true;
+        }
+    }
+
+    const std::string queryStemLower = CanonicalText(StripExtension(query));
+    if (queryStemLower.empty()) {
+        return false;
+    }
+
+    const std::string nameStemLower = CanonicalText(StripExtension(name));
+    const std::string fileStemLower = CanonicalText(StripExtension(fileName));
+
+    if (hasWildcard) {
+        if (StringUtils::WildcardMatchUtf8(queryStemLower, nameStemLower) ||
+            StringUtils::WildcardMatchUtf8(queryStemLower, fileStemLower)) {
+            return true;
+        }
+    }
+
+    return queryStemLower == nameStemLower || queryStemLower == fileStemLower;
+}
+
+std::optional<uint64_t> ResolveModuleBaseByQueryFallback(const std::string& query) {
+    BridgeList<Script::Module::ModuleInfo> moduleList;
+    if (!Script::Module::GetList(&moduleList)) {
+        return std::nullopt;
+    }
+
+    for (size_t i = 0; i < moduleList.Count(); ++i) {
+        const auto& mod = moduleList[i];
+        if (ModuleMatchesQuery(mod, query)) {
+            return mod.base;
+        }
+    }
+
+    return std::nullopt;
+}
+#endif
 
 bool SectionContainsRva(const IMAGE_SECTION_HEADER& section, uint32_t rva) {
     const uint32_t start = section.VirtualAddress;
@@ -318,8 +407,8 @@ bool EnsureExecutionInModuleContext(
 
     const std::string initCommand = "init \"" + escapedPath + "\"";
     Logger::Info(
-        "RIP 0x{:X} is outside module before {}. Resetting context with {}",
-        currentRip,
+        "RIP {} is outside module before {}. Resetting context with {}",
+        StringUtils::FormatAddress(currentRip),
         phase,
         initCommand
     );
@@ -353,7 +442,7 @@ bool EnsureExecutionInModuleContext(
             }
 
             if (isRipInModule(rip)) {
-                Logger::Info("Recovered module context at RIP 0x{:X}", rip);
+                Logger::Info("Recovered module context at RIP {}", StringUtils::FormatAddress(rip));
                 return true;
             }
         }
@@ -447,10 +536,15 @@ DumpResult DumpManager::DumpModule(
             throw MCPException("Failed to get module size");
         }
         
-        Logger::Info("Dumping module at 0x{:X}, size: {} bytes, EP: 0x{:X}", 
-                    moduleBase, moduleSize, entryPoint);
+        Logger::Info("Dumping module at {}, size: {} bytes, EP: {}",
+                    StringUtils::FormatAddress(moduleBase),
+                    moduleSize,
+                    StringUtils::FormatAddress(entryPoint));
 
         const std::string modulePath = GetModulePath(moduleBase);
+        const std::filesystem::path moduleFsPath =
+            modulePath.empty() ? std::filesystem::path() : ToFilesystemPath(modulePath);
+        const std::filesystem::path outputFsPath = ToFilesystemPath(outputPath);
         std::string packerId;
         const bool isPackedImage = IsPacked(moduleBase, packerId);
         const bool hasResolvedOEP =
@@ -459,19 +553,19 @@ DumpResult DumpManager::DumpModule(
         // If still packed and no resolved OEP is provided, return a runnable baseline by copying
         // the original image instead of writing unstable runtime memory state.
         if (isPackedImage && !options.autoDetectOEP && !hasResolvedOEP &&
-            !modulePath.empty() && std::filesystem::exists(modulePath)) {
+            !modulePath.empty() && std::filesystem::exists(moduleFsPath)) {
             updateProgress(DumpProgress::Stage::Preparing, 5,
                            "Packed module fallback: copying original image");
 
             std::filesystem::copy_file(
-                modulePath,
-                outputPath,
+                moduleFsPath,
+                outputFsPath,
                 std::filesystem::copy_options::overwrite_existing
             );
 
             result.success = true;
             result.filePath = outputPath;
-            result.dumpedSize = std::filesystem::file_size(outputPath);
+            result.dumpedSize = std::filesystem::file_size(outputFsPath);
             result.originalEP = entryPoint;
             result.newEP = entryPoint;
 
@@ -520,20 +614,28 @@ DumpResult DumpManager::DumpModule(
 
             const auto trySetOEP = [&](uint64_t absoluteOEP, const char* source) {
                 if (absoluteOEP < moduleBase || absoluteOEP >= moduleBase + moduleSize) {
-                    Logger::Warning("{} OEP 0x{:X} is outside module range [0x{:X}, 0x{:X})",
-                                    source, absoluteOEP, moduleBase, moduleBase + moduleSize);
+                    Logger::Warning("{} OEP {} is outside module range [{}, {})",
+                                    source,
+                                    StringUtils::FormatAddress(absoluteOEP),
+                                    StringUtils::FormatAddress(moduleBase),
+                                    StringUtils::FormatAddress(moduleBase + moduleSize));
                     return false;
                 }
 
                 const uint64_t rva64 = absoluteOEP - moduleBase;
                 if (rva64 > std::numeric_limits<uint32_t>::max()) {
-                    Logger::Warning("{} OEP RVA 0x{:X} exceeds 32-bit PE limit", source, rva64);
+                    Logger::Warning("{} OEP RVA {} exceeds 32-bit PE limit",
+                                    source,
+                                    StringUtils::FormatAddress(rva64));
                     return false;
                 }
 
                 newOEP = static_cast<uint32_t>(rva64);
                 result.newEP = absoluteOEP;
-                Logger::Info("{} OEP: 0x{:X} (RVA: 0x{:X})", source, absoluteOEP, newOEP.value());
+                Logger::Info("{} OEP: {} (RVA: {})",
+                             source,
+                             StringUtils::FormatAddress(absoluteOEP),
+                             StringUtils::FormatAddress(newOEP.value()));
                 return true;
             };
 
@@ -585,7 +687,7 @@ DumpResult DumpManager::DumpModule(
         updateProgress(DumpProgress::Stage::Writing, 90, "Writing to file");
         
         // 鍐欏叆鏂囦欢
-        std::ofstream outFile(outputPath, std::ios::binary);
+        std::ofstream outFile(outputFsPath, std::ios::binary);
         if (!outFile) {
             throw MCPException("Failed to create output file: " + outputPath);
         }
@@ -633,8 +735,10 @@ DumpResult DumpManager::DumpMemoryRegion(
             throw DebuggerNotRunningException();
         }
         
-        Logger::Info("Dumping memory region 0x{:X} - 0x{:X} ({} bytes)",
-                    startAddress, startAddress + size, size);
+        Logger::Info("Dumping memory region {} - {} ({} bytes)",
+                    StringUtils::FormatAddress(startAddress),
+                    StringUtils::FormatAddress(startAddress + size),
+                    size);
         
         auto& memMgr = MemoryManager::Instance();
         std::vector<uint8_t> buffer = memMgr.Read(startAddress, size);
@@ -645,7 +749,7 @@ DumpResult DumpManager::DumpMemoryRegion(
             RebuildPEHeaders(startAddress, buffer);
         }
         
-        std::ofstream outFile(outputPath, std::ios::binary);
+        std::ofstream outFile(ToFilesystemPath(outputPath), std::ios::binary);
         if (!outFile) {
             throw MCPException("Failed to create output file: " + outputPath);
         }
@@ -766,8 +870,8 @@ DumpResult DumpManager::AutoUnpackAndDump(
         updateProgress(DumpProgress::Stage::Preparing, 10, 
                       info.isPacked ? "Packed module detected: " + info.packerId : "Module is not packed");
         
-        Logger::Info("Module: {}, Base: 0x{:X}, Packed: {}", 
-                    info.name, info.baseAddress, info.isPacked);
+        Logger::Info("Module: {}, Base: {}, Packed: {}",
+                    info.name, StringUtils::FormatAddress(info.baseAddress), info.isPacked);
         
         if (!info.isPacked) {
             // 鏈姞澹?鐩存帴dump
@@ -807,12 +911,14 @@ DumpResult DumpManager::AutoUnpackAndDump(
             }
             
             uint64_t detectedOEP = oepOpt.value();
-            Logger::Info("Iteration {}: Detected OEP at 0x{:X}", iteration + 1, detectedOEP);
+            Logger::Info("Iteration {}: Detected OEP at {}",
+                         iteration + 1,
+                         StringUtils::FormatAddress(detectedOEP));
             if (info.isPacked && detectedOEP == declaredEntry) {
                 Logger::Warning(
-                    "Iteration {}: detected OEP is still packed entry 0x{:X}",
+                    "Iteration {}: detected OEP is still packed entry {}",
                     iteration + 1,
-                    detectedOEP
+                    StringUtils::FormatAddress(detectedOEP)
                 );
                 continue;
             }
@@ -1016,7 +1122,9 @@ std::optional<uint64_t> DumpManager::DetectOEP(uint64_t moduleBase, const std::s
         throw MCPException("Failed to pause debugger before OEP detection");
     }
 
-    Logger::Debug("Detecting OEP for module at 0x{:X} using strategy: {}", moduleBase, strategy);
+    Logger::Debug("Detecting OEP for module at {} using strategy: {}",
+                  StringUtils::FormatAddress(moduleBase),
+                  strategy);
     std::string packerId;
     const bool isPacked = IsPacked(moduleBase, packerId);
     const uint64_t entryPoint = GetModuleEntryPoint(moduleBase);
@@ -1027,7 +1135,7 @@ std::optional<uint64_t> DumpManager::DetectOEP(uint64_t moduleBase, const std::s
             result = DetectOEPByPattern(moduleBase);
         }
         if (result.has_value()) {
-            Logger::Info("OEP detected by entropy: 0x{:X}", result.value());
+            Logger::Info("OEP detected by entropy: {}", StringUtils::FormatAddress(result.value()));
         }
         return result;
     }
@@ -1038,7 +1146,7 @@ std::optional<uint64_t> DumpManager::DetectOEP(uint64_t moduleBase, const std::s
             result = DetectOEPByExecution(moduleBase);
         }
         if (result.has_value()) {
-            Logger::Info("OEP detected by code analysis: 0x{:X}", result.value());
+            Logger::Info("OEP detected by code analysis: {}", StringUtils::FormatAddress(result.value()));
         }
         return result;
     }
@@ -1060,16 +1168,17 @@ std::optional<uint64_t> DumpManager::DetectOEP(uint64_t moduleBase, const std::s
             auto unpackedCandidate = DetectOEPByPattern(moduleBase);
             if (unpackedCandidate.has_value() && unpackedCandidate.value() != entryPoint) {
                 Logger::Info(
-                    "Packed module '{}' OEP resolved from transfer pattern: 0x{:X}",
+                    "Packed module '{}' OEP resolved from transfer pattern: {}",
                     packerId,
-                    unpackedCandidate.value()
+                    StringUtils::FormatAddress(unpackedCandidate.value())
                 );
                 return unpackedCandidate;
             }
         }
 
         if (entryPoint != 0) {
-            Logger::Info("Using declared entry point as OEP: 0x{:X}", entryPoint);
+            Logger::Info("Using declared entry point as OEP: {}",
+                         StringUtils::FormatAddress(entryPoint));
             return entryPoint;
         }
 
@@ -1115,7 +1224,9 @@ std::vector<MemoryRegionDump> DumpManager::GetDumpableRegions(uint64_t moduleBas
         regions.push_back(dumpRegion);
     }
     
-    Logger::Debug("Found {} dumpable regions for module at 0x{:X}", regions.size(), moduleBase);
+    Logger::Debug("Found {} dumpable regions for module at {}",
+                  regions.size(),
+                  StringUtils::FormatAddress(moduleBase));
     return regions;
 }
 
@@ -1141,11 +1252,12 @@ bool DumpManager::FixImportTable(uint64_t moduleBase, std::vector<uint8_t>& buff
 
         const std::string modulePath = GetModulePath(moduleBase);
         if (modulePath.empty()) {
-            Logger::Warning("Cannot fix imports: module path is empty for 0x{:X}", moduleBase);
+            Logger::Warning("Cannot fix imports: module path is empty for {}",
+                            StringUtils::FormatAddress(moduleBase));
             return false;
         }
 
-        std::ifstream input(modulePath, std::ios::binary | std::ios::ate);
+        std::ifstream input(ToFilesystemPath(modulePath), std::ios::binary | std::ios::ate);
         if (!input) {
             Logger::Warning("Cannot fix imports: failed to open original file {}", modulePath);
             return false;
@@ -1341,7 +1453,8 @@ bool DumpManager::RebuildPEHeaders(uint64_t moduleBase, std::vector<uint8_t>& bu
         // 淇鍏ュ彛鐐?
         if (newEP.has_value()) {
             ntHeaders->OptionalHeader.AddressOfEntryPoint = newEP.value();
-            Logger::Info("Updated entry point to RVA: 0x{:X}", newEP.value());
+            Logger::Info("Updated entry point to RVA: {}",
+                         StringUtils::FormatAddress(newEP.value()));
         }
         
         // 淇ImageBase
@@ -1403,6 +1516,13 @@ std::optional<uint64_t> DumpManager::ParseModuleOrAddress(const std::string& inp
     if (modBase != 0) {
         return modBase;
     }
+
+#ifdef XDBG_SDK_AVAILABLE
+    auto fallbackBase = ResolveModuleBaseByQueryFallback(input);
+    if (fallbackBase.has_value()) {
+        return fallbackBase.value();
+    }
+#endif
     
     return std::nullopt;
 }
@@ -1557,7 +1677,7 @@ uint64_t DumpManager::GetModuleEntryPoint(uint64_t moduleBase) {
 std::string DumpManager::GetModulePath(uint64_t moduleBase) {
     char path[MAX_PATH] = {0};
     if (DbgFunctions()->ModPathFromAddr(moduleBase, path, MAX_PATH)) {
-        return std::string(path);
+        return StringUtils::FixUtf8Mojibake(std::string(path));
     }
     return "";
 }
@@ -1626,9 +1746,9 @@ std::optional<uint64_t> DumpManager::DetectOEPByPattern(uint64_t moduleBase) {
                             );
                             if (isValidTarget(target)) {
                                 Logger::Info(
-                                    "OEP candidate found by near jump at 0x{:X} -> 0x{:X}",
-                                    instructionAddress,
-                                    target
+                                    "OEP candidate found by near jump at {} -> {}",
+                                    StringUtils::FormatAddress(instructionAddress),
+                                    StringUtils::FormatAddress(target)
                                 );
                                 return target;
                             }
@@ -1641,9 +1761,9 @@ std::optional<uint64_t> DumpManager::DetectOEPByPattern(uint64_t moduleBase) {
                             );
                             if (isValidTarget(target)) {
                                 Logger::Info(
-                                    "OEP candidate found by short jump at 0x{:X} -> 0x{:X}",
-                                    instructionAddress,
-                                    target
+                                    "OEP candidate found by short jump at {} -> {}",
+                                    StringUtils::FormatAddress(instructionAddress),
+                                    StringUtils::FormatAddress(target)
                                 );
                                 return target;
                             }
@@ -1670,9 +1790,9 @@ std::optional<uint64_t> DumpManager::DetectOEPByPattern(uint64_t moduleBase) {
                                     const uint64_t target = static_cast<uint64_t>(targetValue);
                                     if (isValidTarget(target)) {
                                         Logger::Info(
-                                            "OEP candidate found by indirect jump at 0x{:X} -> 0x{:X}",
-                                            instructionAddress,
-                                            target
+                                            "OEP candidate found by indirect jump at {} -> {}",
+                                            StringUtils::FormatAddress(instructionAddress),
+                                            StringUtils::FormatAddress(target)
                                         );
                                         return target;
                                     }
@@ -1689,9 +1809,9 @@ std::optional<uint64_t> DumpManager::DetectOEPByPattern(uint64_t moduleBase) {
                             const uint64_t target = static_cast<uint64_t>(imm32);
                             if (isValidTarget(target)) {
                                 Logger::Info(
-                                    "OEP candidate found by push-ret transfer at 0x{:X} -> 0x{:X}",
-                                    instructionAddress,
-                                    target
+                                    "OEP candidate found by push-ret transfer at {} -> {}",
+                                    StringUtils::FormatAddress(instructionAddress),
+                                    StringUtils::FormatAddress(target)
                                 );
                                 return target;
                             }
@@ -1705,9 +1825,9 @@ std::optional<uint64_t> DumpManager::DetectOEPByPattern(uint64_t moduleBase) {
                             const uint64_t target = static_cast<uint64_t>(imm32);
                             if (isValidTarget(target)) {
                                 Logger::Info(
-                                    "OEP candidate found by mov-jmp transfer at 0x{:X} -> 0x{:X}",
-                                    instructionAddress,
-                                    target
+                                    "OEP candidate found by mov-jmp transfer at {} -> {}",
+                                    StringUtils::FormatAddress(instructionAddress),
+                                    StringUtils::FormatAddress(target)
                                 );
                                 return target;
                             }
@@ -1722,9 +1842,9 @@ std::optional<uint64_t> DumpManager::DetectOEPByPattern(uint64_t moduleBase) {
                             const uint64_t target = imm64;
                             if (isValidTarget(target)) {
                                 Logger::Info(
-                                    "OEP candidate found by movabs-jmp transfer at 0x{:X} -> 0x{:X}",
-                                    instructionAddress,
-                                    target
+                                    "OEP candidate found by movabs-jmp transfer at {} -> {}",
+                                    StringUtils::FormatAddress(instructionAddress),
+                                    StringUtils::FormatAddress(target)
                                 );
                                 return target;
                             }
@@ -1754,9 +1874,9 @@ std::optional<uint64_t> DumpManager::DetectOEPByPattern(uint64_t moduleBase) {
                     }
 
                     Logger::Info(
-                        "OEP candidate found by function pattern '{}' at 0x{:X}",
+                        "OEP candidate found by function pattern '{}' at {}",
                         pattern,
-                        results[0].address
+                        StringUtils::FormatAddress(results[0].address)
                     );
                     return results[0].address;
                 }

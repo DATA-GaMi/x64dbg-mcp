@@ -5,6 +5,8 @@
 #include <sstream>
 #include <chrono>
 #include <iomanip>
+#include <type_traits>
+#include <cstdint>
 
 namespace MCP {
 
@@ -116,9 +118,9 @@ private:
     static std::string FormatLogMessage(const std::string& format, T&& value, Args&&... args);
 
     template<typename T>
-    static void AppendFormattedValue(std::ostringstream& oss, T&& value);
-    static void AppendFormattedValue(std::ostringstream& oss, const char* value);
-    static void AppendFormattedValue(std::ostringstream& oss, char* value);
+    static void AppendFormattedValue(std::ostringstream& oss, T&& value, const std::string& spec);
+    static void AppendFormattedValue(std::ostringstream& oss, const char* value, const std::string& spec);
+    static void AppendFormattedValue(std::ostringstream& oss, char* value, const std::string& spec);
     
     static std::ofstream m_file;
     static LogLevel m_level;
@@ -137,30 +139,70 @@ void Logger::LogFormatted(LogLevel level, const std::string& format, Args&&... a
 template<typename T, typename... Args>
 std::string Logger::FormatLogMessage(const std::string& format, T&& value, Args&&... args) {
     std::ostringstream oss;
-    size_t pos = format.find("{}");
-    
-    if (pos != std::string::npos) {
-        oss << format.substr(0, pos);
-        AppendFormattedValue(oss, std::forward<T>(value));
-        std::string remaining = format.substr(pos + 2);
-        oss << FormatLogMessage(remaining, std::forward<Args>(args)...);
-    } else {
-        oss << format;
+    size_t open = format.find('{');
+    if (open != std::string::npos) {
+        size_t close = format.find('}', open + 1);
+        if (close != std::string::npos) {
+            oss << format.substr(0, open);
+            const std::string spec = format.substr(open + 1, close - open - 1); // "" or ":X"
+            AppendFormattedValue(oss, std::forward<T>(value), spec);
+            std::string remaining = format.substr(close + 1);
+            oss << FormatLogMessage(remaining, std::forward<Args>(args)...);
+            return oss.str();
+        }
     }
-    
+
+    oss << format;
     return oss.str();
 }
 
 template<typename T>
-void Logger::AppendFormattedValue(std::ostringstream& oss, T&& value) {
+void Logger::AppendFormattedValue(std::ostringstream& oss, T&& value, const std::string& spec) {
+    const bool upperHex = (spec == ":X");
+    const bool lowerHex = (spec == ":x");
+
+    if (upperHex || lowerHex) {
+        std::ostringstream formatter;
+        formatter << std::hex;
+        if (upperHex) {
+            formatter << std::uppercase;
+        } else {
+            formatter << std::nouppercase;
+        }
+
+        using Decayed = std::decay_t<T>;
+        if constexpr (std::is_enum_v<Decayed>) {
+            using Underlying = std::underlying_type_t<Decayed>;
+            using UnsignedUnderlying = std::make_unsigned_t<Underlying>;
+            formatter << static_cast<UnsignedUnderlying>(static_cast<Underlying>(value));
+            oss << formatter.str();
+            return;
+        } else if constexpr (std::is_same_v<Decayed, bool>) {
+            formatter << (value ? 1 : 0);
+            oss << formatter.str();
+            return;
+        } else if constexpr (std::is_integral_v<Decayed>) {
+            using UnsignedValue = std::make_unsigned_t<Decayed>;
+            formatter << static_cast<UnsignedValue>(value);
+            oss << formatter.str();
+            return;
+        } else if constexpr (std::is_pointer_v<Decayed>) {
+            formatter << reinterpret_cast<std::uintptr_t>(value);
+            oss << formatter.str();
+            return;
+        }
+    }
+
     oss << std::forward<T>(value);
 }
 
-inline void Logger::AppendFormattedValue(std::ostringstream& oss, const char* value) {
+inline void Logger::AppendFormattedValue(std::ostringstream& oss, const char* value, const std::string& spec) {
+    (void)spec;
     oss << (value ? value : "(null)");
 }
 
-inline void Logger::AppendFormattedValue(std::ostringstream& oss, char* value) {
+inline void Logger::AppendFormattedValue(std::ostringstream& oss, char* value, const std::string& spec) {
+    (void)spec;
     oss << (value ? value : "(null)");
 }
 

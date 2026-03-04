@@ -138,7 +138,7 @@ nlohmann::json DumpHandler::AutoUnpackAndDump(const nlohmann::json& params) {
     
     std::string module = params["module"].get<std::string>();
     std::string outputPath = params["output_path"].get<std::string>();
-    int maxIterations = params.value("max_iterations", 3);
+    int maxIterations = params.value("max_iterations", 10);
     std::string strategy = params.value("strategy", "code_analysis");
 
     static const std::set<std::string> validStrategies = {
@@ -170,8 +170,9 @@ nlohmann::json DumpHandler::AnalyzeModule(const nlohmann::json& params) {
     if (!params.contains("module") || params["module"].is_null()) {
         Script::Module::ModuleInfo info;
         if (Script::Module::GetMainModuleInfo(&info)) {
-            module = info.name;
-            Logger::Info("No module specified, using main module: {}", module);
+            // Use base address to avoid any encoding ambiguity in Script API module names.
+            module = StringUtils::FormatAddress(static_cast<uint64_t>(info.base));
+            Logger::Info("No module specified, using main module at: {}", module);
         } else {
             throw MCPException("No module specified and failed to get main module", -32000);
         }
@@ -388,8 +389,8 @@ nlohmann::json DumpHandler::DumpResultToJson(const DumpResult& result) {
 nlohmann::json DumpHandler::ModuleDumpInfoToJson(const ModuleDumpInfo& info) {
     nlohmann::json json;
     
-    json["name"] = info.name;
-    json["path"] = info.path;
+    json["name"] = StringUtils::FixUtf8Mojibake(info.name);
+    json["path"] = StringUtils::FixUtf8Mojibake(info.path);
     json["base_address"] = StringUtils::FormatAddress(info.baseAddress);
     json["size"] = info.size;
     json["entry_point"] = StringUtils::FormatAddress(info.entryPoint);

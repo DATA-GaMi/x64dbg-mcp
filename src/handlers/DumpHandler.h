@@ -70,7 +70,7 @@ private:
      * @param params {
      *   "module": "packed.exe",
      *   "output_path": "C:\\dump\\unpacked.exe",
-     *   "max_iterations": 3  // 最大迭代次数
+     *   "max_iterations": 10  // 最大迭代次数
      * }
      * @return {
      *   "success": true,

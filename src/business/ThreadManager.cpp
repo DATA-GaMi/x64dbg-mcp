@@ -6,6 +6,7 @@
 #include "bridgemain.h"
 #include "_plugins.h"
 #include <algorithm>
+#include <sstream>
 #include <Windows.h>
 
 namespace MCP {
@@ -112,10 +113,8 @@ uint32_t ThreadManager::GetCurrentThreadId() {
         throw DebuggerNotRunningException("Debugger is not debugging");
     }
 
-    // 使用 x64dbg Bridge API 获取当前线程ID
     DWORD tid = DbgGetThreadId();
     if (tid == 0) {
-        // 如果 DbgGetThreadId 返回 0，尝试从线程列表中获取
         THREADLIST threadList;
         memset(&threadList, 0, sizeof(THREADLIST));
         DbgGetThreadList(&threadList);
@@ -127,7 +126,6 @@ uint32_t ThreadManager::GetCurrentThreadId() {
             tid = static_cast<DWORD>(threadList.list[threadList.CurrentThread].BasicInfo.ThreadId);
         }
 
-        // 释放线程列表内存
         if (threadList.list) {
             BridgeFree(threadList.list);
         }
@@ -142,7 +140,7 @@ ThreadInfo ThreadManager::GetCurrentThread() {
 }
 
 ThreadInfo ThreadManager::GetThread(uint32_t threadId) {
-    // 获取所有线程并查找指定ID
+    // Get all threads and locate target ID.
     auto threads = GetThreadList();
 
     auto it = std::find_if(threads.begin(), threads.end(),
@@ -162,29 +160,39 @@ bool ThreadManager::SwitchThread(uint32_t threadId) {
         throw DebuggerNotRunningException("Debugger is not debugging");
     }
 
-    // 检查线程是否有效
     if (!IsValidThread(threadId)) {
         LOG_ERROR("Invalid thread ID: {}", threadId);
         return false;
     }
 
-    // 如果已经是当前线程，无需切换
     if (GetCurrentThreadId() == threadId) {
         LOG_DEBUG("Already on thread {}", threadId);
         return true;
     }
 
     try {
-        // 使用 x64dbg 命令切换线程
-        std::string cmd = "switchthread " + std::to_string(threadId);
-        if (!DbgCmdExec(cmd.c_str())) {
-            LOG_ERROR("Failed to switch to thread {}", threadId);
+        std::ostringstream cmdBuilder;
+        cmdBuilder << "switchthread 0x" << std::hex << std::uppercase << threadId;
+        std::string cmd = cmdBuilder.str();
+        if (!DbgCmdExecDirect(cmd.c_str())) {
+            LOG_ERROR("Failed to execute switch command for thread {}", threadId);
             return false;
         }
 
-        LOG_INFO("Switched to thread {}", threadId);
-        return true;
+        // Wait until debugger state reflects the actual current thread.
+        constexpr int kMaxPollCount = 50;
+        constexpr DWORD kPollIntervalMs = 10;
+        for (int i = 0; i < kMaxPollCount; ++i) {
+            if (GetCurrentThreadId() == threadId) {
+                LOG_INFO("Switched to thread {}", threadId);
+                return true;
+            }
+            Sleep(kPollIntervalMs);
+        }
 
+        uint32_t actualThreadId = GetCurrentThreadId();
+        LOG_ERROR("Thread switch timed out. expected={}, actual={}", threadId, actualThreadId);
+        return false;
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to switch thread: {}", e.what());
         return false;
@@ -196,9 +204,9 @@ bool ThreadManager::SuspendThread(uint32_t threadId) {
         throw DebuggerNotRunningException("Debugger is not debugging");
     }
 
-    // 注意：直接挂起线程可能导致调试器不稳定
-    // 使用 x64dbg 命令更安全
-    std::string cmd = "suspendthread " + std::to_string(threadId);
+    std::ostringstream cmdBuilder;
+    cmdBuilder << "suspendthread 0x" << std::hex << std::uppercase << threadId;
+    std::string cmd = cmdBuilder.str();
     return DbgCmdExec(cmd.c_str());
 }
 
@@ -207,7 +215,9 @@ bool ThreadManager::ResumeThread(uint32_t threadId) {
         throw DebuggerNotRunningException("Debugger is not debugging");
     }
 
-    std::string cmd = "resumethread " + std::to_string(threadId);
+    std::ostringstream cmdBuilder;
+    cmdBuilder << "resumethread 0x" << std::hex << std::uppercase << threadId;
+    std::string cmd = cmdBuilder.str();
     return DbgCmdExec(cmd.c_str());
 }
 
@@ -240,17 +250,8 @@ bool ThreadManager::IsValidThread(uint32_t threadId) {
 }
 
 std::string ThreadManager::GetThreadName(uint32_t threadId) {
-    // x64dbg 可能不总是有线程名称
-    // 尝试从调试符号或其他来源获取
-
-    // 简化实现：返回格式化的线程ID
+    // Keep a stable fallback name even when thread description is unavailable.
     return "Thread " + std::to_string(threadId);
-
-    // 未来可以扩展：
-    // - 检查 TEB 结构中的线程名称
-    // - 使用 Windows API GetThreadDescription (Windows 10 1607+)
-    // - 检查调试符号中的线程名称注释
 }
 
 } // namespace MCP
-

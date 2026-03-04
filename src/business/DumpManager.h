@@ -134,7 +134,7 @@ public:
     DumpResult AutoUnpackAndDump(
         const std::string& moduleNameOrAddress,
         const std::string& outputPath,
-        int maxIterations = 3,
+        int maxIterations = 10,
         const std::string& oepStrategy = "code_analysis",
         ProgressCallback progressCallback = nullptr
     );

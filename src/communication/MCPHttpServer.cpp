@@ -520,7 +520,7 @@ void MCPHttpServer::HandleSSE(SOCKET clientSocket) {
     // 鍙戦€?SSE 鍝嶅簲澶?
     std::string headers = 
         "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/event-stream\r\n"
+        "Content-Type: text/event-stream; charset=utf-8\r\n"
         "Cache-Control: no-cache\r\n"
         "Connection: keep-alive\r\n"
         "Access-Control-Allow-Origin: *\r\n"
@@ -1075,10 +1075,17 @@ void MCPHttpServer::SendHttpResponse(SOCKET socket, int statusCode,
                                      const std::string& contentType) {
     const std::string responseBody = (statusCode == 204) ? "" : body;
     const char* statusText = GetHttpStatusText(statusCode);
+    std::string responseContentType = contentType;
+    const bool missingCharset = responseContentType.find("charset=") == std::string::npos;
+    const bool isTextual = responseContentType.rfind("text/", 0) == 0 ||
+                           responseContentType.rfind("application/json", 0) == 0;
+    if (missingCharset && isTextual) {
+        responseContentType += "; charset=utf-8";
+    }
     
     std::ostringstream response;
     response << "HTTP/1.1 " << statusCode << " " << statusText << "\r\n"
-             << "Content-Type: " << contentType << "\r\n"
+             << "Content-Type: " << responseContentType << "\r\n"
              << "Content-Length: " << responseBody.length() << "\r\n"
              << "Access-Control-Allow-Origin: *\r\n"
              << "Connection: close\r\n"

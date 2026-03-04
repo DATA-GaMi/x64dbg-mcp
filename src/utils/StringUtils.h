@@ -5,9 +5,14 @@
 #include <iomanip>
 #include <algorithm>
 #include <cctype>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace MCP {
 namespace StringUtils {
+
+inline bool IsValidUtf8(const std::string& input);
 
 /**
  * @brief 转换字符串为小写
@@ -236,6 +241,67 @@ inline bool WildcardMatch(const std::string& pattern, const std::string& str) {
 }
 
 /**
+ * @brief UTF-8 感知的通配符匹配（? 按 Unicode 码点匹配）
+ */
+inline bool WildcardMatchUtf8(const std::string& pattern, const std::string& str) {
+#ifdef _WIN32
+    if (!IsValidUtf8(pattern) || !IsValidUtf8(str)) {
+        return WildcardMatch(pattern, str);
+    }
+
+    const int patternWideLen = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, pattern.data(), static_cast<int>(pattern.size()), nullptr, 0
+    );
+    const int strWideLen = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, str.data(), static_cast<int>(str.size()), nullptr, 0
+    );
+    if (patternWideLen <= 0 || strWideLen <= 0) {
+        return WildcardMatch(pattern, str);
+    }
+
+    std::wstring patternWide(static_cast<size_t>(patternWideLen), L'\0');
+    std::wstring strWide(static_cast<size_t>(strWideLen), L'\0');
+    MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, pattern.data(), static_cast<int>(pattern.size()),
+        patternWide.data(), patternWideLen
+    );
+    MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, str.data(), static_cast<int>(str.size()),
+        strWide.data(), strWideLen
+    );
+
+    size_t pIdx = 0, sIdx = 0;
+    size_t starIdx = std::wstring::npos, matchIdx = 0;
+
+    while (sIdx < strWide.length()) {
+        if (pIdx < patternWide.length() &&
+            (patternWide[pIdx] == strWide[sIdx] || patternWide[pIdx] == L'?')) {
+            ++pIdx;
+            ++sIdx;
+        } else if (pIdx < patternWide.length() && patternWide[pIdx] == L'*') {
+            starIdx = pIdx;
+            matchIdx = sIdx;
+            ++pIdx;
+        } else if (starIdx != std::wstring::npos) {
+            pIdx = starIdx + 1;
+            ++matchIdx;
+            sIdx = matchIdx;
+        } else {
+            return false;
+        }
+    }
+
+    while (pIdx < patternWide.length() && patternWide[pIdx] == L'*') {
+        ++pIdx;
+    }
+
+    return pIdx == patternWide.length();
+#else
+    return WildcardMatch(pattern, str);
+#endif
+}
+
+/**
  * @brief 将字节数组编码为 Base64 字符串
  */
 inline std::string ToBase64(const std::vector<uint8_t>& data) {
@@ -335,6 +401,124 @@ inline std::vector<uint8_t> FromBase64(const std::string& encoded_string) {
     }
     
     return result;
+}
+
+/**
+ * @brief 检查字符串是否是有效 UTF-8
+ */
+inline bool IsValidUtf8(const std::string& input) {
+#ifdef _WIN32
+    if (input.empty()) {
+        return true;
+    }
+
+    const int wideLen = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        input.data(),
+        static_cast<int>(input.size()),
+        nullptr,
+        0
+    );
+    return wideLen > 0;
+#else
+    (void)input;
+    return true;
+#endif
+}
+
+/**
+ * @brief 修复 UTF-8 二次编码导致的 mojibake（如 "åçº§" -> "初级"）
+ */
+inline std::string FixUtf8Mojibake(const std::string& input) {
+#ifdef _WIN32
+    if (input.empty() || !IsValidUtf8(input)) {
+        return input;
+    }
+
+    const int wideLen = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        input.data(),
+        static_cast<int>(input.size()),
+        nullptr,
+        0
+    );
+    if (wideLen <= 0) {
+        return input;
+    }
+
+    std::wstring wide(static_cast<size_t>(wideLen), L'\0');
+    MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        input.data(),
+        static_cast<int>(input.size()),
+        wide.data(),
+        wideLen
+    );
+
+    bool hasHighByteChars = false;
+    for (wchar_t ch : wide) {
+        if (ch > 0x00FF) {
+            // Already a normal Unicode string, not mojibake.
+            return input;
+        }
+        if (ch >= 0x0080) {
+            hasHighByteChars = true;
+        }
+    }
+
+    if (!hasHighByteChars) {
+        return input;
+    }
+
+    std::string recoveredBytes;
+    recoveredBytes.reserve(wide.size());
+    for (wchar_t ch : wide) {
+        recoveredBytes.push_back(static_cast<char>(static_cast<unsigned char>(ch)));
+    }
+
+    if (!IsValidUtf8(recoveredBytes)) {
+        return input;
+    }
+
+    // Ensure the recovered bytes decode to non-ASCII text to avoid over-correction.
+    const int recoveredWideLen = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        recoveredBytes.data(),
+        static_cast<int>(recoveredBytes.size()),
+        nullptr,
+        0
+    );
+    if (recoveredWideLen <= 0) {
+        return input;
+    }
+
+    std::wstring recoveredWide(static_cast<size_t>(recoveredWideLen), L'\0');
+    MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        recoveredBytes.data(),
+        static_cast<int>(recoveredBytes.size()),
+        recoveredWide.data(),
+        recoveredWideLen
+    );
+
+    const bool hasNonAscii = std::any_of(
+        recoveredWide.begin(),
+        recoveredWide.end(),
+        [](wchar_t ch) { return ch > 0x007F; }
+    );
+    if (!hasNonAscii) {
+        return input;
+    }
+
+    return recoveredBytes;
+#else
+    return input;
+#endif
 }
 
 } // namespace StringUtils

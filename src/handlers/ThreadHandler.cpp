@@ -28,7 +28,7 @@ nlohmann::json ThreadHandler::ListThreads(const nlohmann::json& params) {
     auto& threadMgr = ThreadManager::Instance();
     auto threads = threadMgr.GetThreadList();
     
-    // 构建响应
+    // Build response.
     nlohmann::json result;
     result["threads"] = nlohmann::json::array();
     result["count"] = threads.size();
@@ -53,7 +53,7 @@ nlohmann::json ThreadHandler::GetCurrentThread(const nlohmann::json& params) {
 nlohmann::json ThreadHandler::GetThread(const nlohmann::json& params) {
     LOG_DEBUG("ThreadHandler::GetThread called");
     
-    // 验证参数
+    // Validate parameters.
     if (!params.contains("thread_id")) {
         throw InvalidParamsException("Missing required parameter: thread_id");
     }
@@ -69,7 +69,7 @@ nlohmann::json ThreadHandler::GetThread(const nlohmann::json& params) {
 nlohmann::json ThreadHandler::SwitchThread(const nlohmann::json& params) {
     LOG_DEBUG("ThreadHandler::SwitchThread called");
     
-    // 验证参数
+    // Validate parameters.
     if (!params.contains("thread_id")) {
         throw InvalidParamsException("Missing required parameter: thread_id");
     }
@@ -78,20 +78,27 @@ nlohmann::json ThreadHandler::SwitchThread(const nlohmann::json& params) {
     
     auto& threadMgr = ThreadManager::Instance();
     
-    // 记录切换前的线程ID
+    // Record previous thread ID.
     uint32_t previousId = threadMgr.GetCurrentThreadId();
     
-    // 执行切换
+    // Execute switch.
     bool success = threadMgr.SwitchThread(threadId);
-    
-    // 构建响应
+    uint32_t currentId = previousId;
+    try {
+        currentId = threadMgr.GetCurrentThreadId();
+    } catch (const std::exception& e) {
+        LOG_WARNING("Failed to query current thread after switch: {}", e.what());
+    }
+
+    // Build response.
     nlohmann::json result;
     result["success"] = success;
     result["previous_id"] = previousId;
-    result["current_id"] = threadId;
-    
+    result["requested_id"] = threadId;
+    result["current_id"] = currentId;
+
     if (success) {
-        LOG_INFO("Switched from thread {} to thread {}", previousId, threadId);
+        LOG_INFO("Switched from thread {} to thread {} (requested={})", previousId, currentId, threadId);
     }
     
     return result;
@@ -100,7 +107,7 @@ nlohmann::json ThreadHandler::SwitchThread(const nlohmann::json& params) {
 nlohmann::json ThreadHandler::SuspendThread(const nlohmann::json& params) {
     LOG_DEBUG("ThreadHandler::SuspendThread called");
     
-    // 验证参数
+    // Validate parameters.
     if (!params.contains("thread_id")) {
         throw InvalidParamsException("Missing required parameter: thread_id");
     }
@@ -124,7 +131,7 @@ nlohmann::json ThreadHandler::SuspendThread(const nlohmann::json& params) {
 nlohmann::json ThreadHandler::ResumeThread(const nlohmann::json& params) {
     LOG_DEBUG("ThreadHandler::ResumeThread called");
     
-    // 验证参数
+    // Validate parameters.
     if (!params.contains("thread_id")) {
         throw InvalidParamsException("Missing required parameter: thread_id");
     }
@@ -169,7 +176,7 @@ nlohmann::json ThreadHandler::FormatThreadInfo(const ThreadInfo& info) {
     j["is_suspended"] = info.isSuspended;
     j["priority"] = info.priority;
     
-    // 现在所有线程都应该有寄存器信息（如果成功获取）
+    // Include register context when available.
     j["rip"] = StringUtils::FormatAddress(info.rip);
     j["rsp"] = StringUtils::FormatAddress(info.rsp);
     j["rbp"] = StringUtils::FormatAddress(info.rbp);
