@@ -728,7 +728,7 @@ std::string MCPHttpServer::HandleMCPMethod(const std::string& method, const std:
         return "{\"jsonrpc\":\"2.0\",\"id\":" + requestId + 
                ",\"result\":{\"protocolVersion\":\"2024-11-05\","
                "\"capabilities\":{\"tools\":{}},"
-               "\"serverInfo\":{\"name\":\"x64dbg-mcp\",\"version\":\"1.0.1\"}}}";
+               "\"serverInfo\":{\"name\":\"x64dbg-mcp\",\"version\":\"1.0.3\"}}}";
     }
     else if (method == "notifications/initialized") {
         // 杩欐槸瀹㈡埛绔彂鐨勯€氱煡锛屼笉闇€瑕佸搷搴?

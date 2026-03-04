@@ -25,7 +25,7 @@
 #include <fstream>
 
 // 鎻掍欢鐗堟湰淇℃�?
-#define PLUGIN_VERSION "1.0.1"
+#define PLUGIN_VERSION "1.0.3"
 
 // 鍙�?CMake 瑕嗙洊锛歅LUGIN_DISPLAY_NAME, PLUGIN_DIR_NAME
 #ifndef PLUGIN_DISPLAY_NAME
@@ -333,7 +333,7 @@ static void CB_MenuEntry(CBTYPE cbType, void* callbackInfo) {
         else if (info->hEntry == MENU_ABOUT) {
             // 鍏充�?
             char aboutMsg[256];
-            sprintf_s(aboutMsg, "[MCP] %s Plugin v1.0.1", PLUGIN_DISPLAY_NAME);
+            sprintf_s(aboutMsg, "[MCP] %s Plugin v%s", PLUGIN_DISPLAY_NAME, PLUGIN_VERSION);
             _plugin_logputs(aboutMsg);
             _plugin_logputs("[MCP] Provides JSON-RPC debugging interface");
             _plugin_logputs("[MCP] https://github.com/SetsunaYukiOvO/x64dbg-mcp");
@@ -449,7 +449,7 @@ extern "C" __declspec(dllexport) bool pluginit(PLUG_INITSTRUCT* initStruct) {
         // 鍒濆鍖栨棩蹇楃郴缁?
         MCP::Logger::Initialize(logPath, MCP::LogLevel::Info, true);
         char initMsg[256];
-        sprintf_s(initMsg, "%s Plugin v1.0.1 initializing...", PLUGIN_DISPLAY_NAME);
+        sprintf_s(initMsg, "%s Plugin v%s initializing...", PLUGIN_DISPLAY_NAME, PLUGIN_VERSION);
         MCP::Logger::Info(initMsg);
         _plugin_logprintf("[MCP] Log file: %s\n", logPath);
         
@@ -476,7 +476,7 @@ extern "C" __declspec(dllexport) bool pluginit(PLUG_INITSTRUCT* initStruct) {
                 std::ofstream configFile(configPath);
                 if (configFile.is_open()) {
                     configFile << R"({
-  "version": "1.0.1",
+  "version": "1.0.3",
   "server": {
     "address": "127.0.0.1",
     "port": 3000
