@@ -392,14 +392,29 @@ size_t BreakpointManager::DeleteAllBreakpoints(std::optional<BreakpointType> typ
     
     auto breakpoints = ListBreakpoints(typeFilter);
     size_t deletedCount = 0;
+    size_t skippedCount = 0;
     
     for (const auto& bp : breakpoints) {
-        if (DeleteBreakpoint(bp.address, bp.type)) {
-            deletedCount++;
+        try {
+            if (DeleteBreakpoint(bp.address, bp.type)) {
+                deletedCount++;
+            }
+        } catch (const ResourceNotFoundException&) {
+            // Breakpoint list can contain stale entries when a previous
+            // session was closed. Skip these entries and continue cleanup.
+            skippedCount++;
+            Logger::Warning("Skip stale breakpoint while deleting all: 0x{:X}", bp.address);
+        } catch (const std::exception& ex) {
+            skippedCount++;
+            Logger::Warning("Failed to delete breakpoint 0x{:X}: {}", bp.address, ex.what());
         }
     }
     
-    Logger::Info("Deleted {} breakpoints", deletedCount);
+    if (skippedCount > 0) {
+        Logger::Info("Deleted {} breakpoints ({} skipped)", deletedCount, skippedCount);
+    } else {
+        Logger::Info("Deleted {} breakpoints", deletedCount);
+    }
     return deletedCount;
 }
 

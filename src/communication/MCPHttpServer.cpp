@@ -1193,12 +1193,13 @@ MCPHttpServer::MCPToolCallResult MCPHttpServer::CallMCPTool(const std::string& t
         }
         
         // 杩斿洖鏍煎紡鍖栫殑缁撴灉
+        result.contentText = response.result.dump(2);  // Pretty output
         result.success = true;
-        result.contentText = response.result.dump(2);  // 缇庡寲杈撳嚭
         return result;
         
     } catch (const std::exception& e) {
         Logger::Error("Exception calling tool: {}", e.what());
+        result.success = false;
         result.errorCode = -32603;
         result.errorMessage = std::string("Internal error: ") + e.what();
         return result;

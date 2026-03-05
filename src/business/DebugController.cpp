@@ -1,4 +1,5 @@
 #include "DebugController.h"
+#include "ThreadManager.h"
 #include "../core/Logger.h"
 #include "../core/Exceptions.h"
 #include "../core/X64DBGBridge.h"
@@ -29,7 +30,22 @@ uint64_t DebugController::GetInstructionPointer() const {
     
     // 使用 x64dbg API 获取 RIP/EIP
     duint rip = DbgValFromString("cip");
-    return static_cast<uint64_t>(rip);
+    if (rip != 0) {
+        return static_cast<uint64_t>(rip);
+    }
+
+    // Fallback to thread context so debug_get_state can report a stable IP.
+    try {
+        const ThreadInfo currentThread = ThreadManager::Instance().GetCurrentThread();
+        if (currentThread.rip != 0) {
+            Logger::Trace("GetInstructionPointer fallback to thread RIP: 0x{:X}", currentThread.rip);
+            return currentThread.rip;
+        }
+    } catch (const std::exception& e) {
+        Logger::Trace("GetInstructionPointer fallback failed: {}", e.what());
+    }
+
+    return 0;
 }
 
 bool DebugController::Run() {
