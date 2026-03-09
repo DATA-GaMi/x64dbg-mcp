@@ -273,11 +273,15 @@ class MCPClient:
 client = MCPClient()
 print(client.call("initialize"))
 print(client.call("tools/list"))
+print(client.call("resources/list"))
+print(client.call("prompts/list"))
 
 # 订阅调试事件
 for event in client.subscribe_events():
     print(f"Event: {event}")
 ```
+
+Cursor 以及其他 MCP 客户端通常会根据 `initialize` 返回的 capabilities 决定显示哪些分类。该服务端会声明 `tools`、`resources` 和 `prompts`，因此在重新连接后，客户端界面中应能看到这三类能力。
 
 ### VS Code 集成
 

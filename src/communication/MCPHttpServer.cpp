@@ -725,9 +725,9 @@ bool MCPHttpServer::ParseJsonRpcRequest(const std::string& rawJson,
 std::string MCPHttpServer::HandleMCPMethod(const std::string& method, const std::string& requestId, const std::string& body) {
     if (method == "initialize") {
         Logger::Info("Handling initialize request");
-        return "{\"jsonrpc\":\"2.0\",\"id\":" + requestId + 
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + requestId +
                ",\"result\":{\"protocolVersion\":\"2024-11-05\","
-               "\"capabilities\":{\"tools\":{}},"
+               "\"capabilities\":{\"tools\":{},\"resources\":{},\"prompts\":{}},"
                "\"serverInfo\":{\"name\":\"x64dbg-mcp\",\"version\":\"1.0.3\"}}}";
     }
     else if (method == "notifications/initialized") {

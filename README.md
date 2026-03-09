@@ -273,11 +273,15 @@ class MCPClient:
 client = MCPClient()
 print(client.call("initialize"))
 print(client.call("tools/list"))
+print(client.call("resources/list"))
+print(client.call("prompts/list"))
 
 # Subscribe to debug events
 for event in client.subscribe_events():
     print(f"Event: {event}")
 ```
+
+Cursor and other MCP clients usually decide which sections to show from the `initialize` response capabilities. This server advertises `tools`, `resources`, and `prompts`, so after reconnecting you should see all three categories in the client UI.
 
 ### VS Code Integration
 

@@ -3,11 +3,26 @@
 #include <sstream>
 
 namespace MCP {
+namespace {
+
+std::string BuildFallbackToolDescription(const MCPToolDefinition& tool) {
+    if (!tool.jsonrpcMethod.empty()) {
+        return "Invoke " + tool.jsonrpcMethod + " operation.";
+    }
+
+    return "Invoke " + tool.name + ".";
+}
+
+std::string BuildFallbackParameterDescription(const MCPToolParameter& parameter) {
+    return "Input parameter '" + parameter.name + "'.";
+}
+
+} // namespace
 
 json MCPToolParameter::ToSchema() const {
     json schema;
     schema["type"] = type;
-    schema["description"] = description;
+    schema["description"] = description.empty() ? BuildFallbackParameterDescription(*this) : description;
     
     if (!defaultValue.is_null()) {
         schema["default"] = defaultValue;
@@ -44,7 +59,7 @@ json MCPToolDefinition::ToMCPFormat() const {
     
     return {
         {"name", name},
-        {"description", description},
+        {"description", description.empty() ? BuildFallbackToolDescription(*this) : description},
         {"inputSchema", inputSchema}
     };
 }
