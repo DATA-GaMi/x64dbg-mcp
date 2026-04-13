@@ -86,6 +86,7 @@ set(HANDLER_SOURCES
     src/handlers/ThreadHandler.cpp
     src/handlers/ModuleHandler.cpp
     src/handlers/EventCallbackHandler.cpp
+    src/handlers/NativeDebugHandler.cpp
     src/handlers/ScriptHandler.cpp
     src/handlers/ContextHandler.cpp
     src/handlers/DumpHandler.cpp

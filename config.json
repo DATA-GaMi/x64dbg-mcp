@@ -23,7 +23,8 @@
       "comment.*",
       "script.*",
       "context.*",
-      "dump.*"
+      "dump.*",
+      "native.*"
     ]
   },
   "logging": {

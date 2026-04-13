@@ -324,6 +324,64 @@ void MCPToolRegistry::RegisterDefaultTools() {
             {"address", "string", "Address of memory to free", true, nullptr, nullptr}
         }
     });
+
+    RegisterTool({
+        "memory_set_protection",
+        "Change memory page protection at the specified address",
+        "memory.set_protection",
+        {
+            {"address", "string", "Address inside the target memory page", true, nullptr, nullptr},
+            {"protection", "string", "Protection value such as PAGE_EXECUTE_READ, RX, RW, or RWX", true, nullptr, nullptr}
+        }
+    });
+
+    RegisterTool({
+        "native_get_xrefs",
+        "Get cross-references targeting the specified address",
+        "native.get_xrefs",
+        {
+            {"address", "string", "Address to inspect for cross-references", true, nullptr, nullptr}
+        }
+    });
+
+    RegisterTool({
+        "native_get_xref_count",
+        "Get the number of cross-references targeting the specified address",
+        "native.get_xref_count",
+        {
+            {"address", "string", "Address to inspect for cross-reference count", true, nullptr, nullptr}
+        }
+    });
+
+    RegisterTool({
+        "native_list_patches",
+        "List all active byte patches known to x64dbg",
+        "native.list_patches",
+        {}
+    });
+
+    RegisterTool({
+        "native_get_patch_at",
+        "Get patch information at a specific address",
+        "native.get_patch_at",
+        {
+            {"address", "string", "Address to inspect for a patch", true, nullptr, nullptr}
+        }
+    });
+
+    RegisterTool({
+        "native_enum_handles",
+        "Enumerate process handles visible to x64dbg",
+        "native.enum_handles",
+        {}
+    });
+
+    RegisterTool({
+        "native_enum_tcp_connections",
+        "Enumerate TCP connections visible to x64dbg",
+        "native.enum_tcp_connections",
+        {}
+    });
     
     // 4. Breakpoint Tools
     RegisterTool({

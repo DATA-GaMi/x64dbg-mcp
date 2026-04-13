@@ -9,21 +9,23 @@ A Model Context Protocol (MCP) server implementation for x64dbg and x32dbg, enab
 ## Features
 
 - **Full MCP Specification Compliance**: Implements all three core MCP building blocks
-  - **Tools (69)**: AI-invokable debugging functions
+  - **Tools (76)**: AI-invokable debugging functions
   - **Resources (15)**: Application-controlled context data sources
   - **Prompts (10)**: User-guided debugging workflow templates
   
 - **JSON-RPC 2.0 Protocol**: Standard, language-agnostic interface
 - **HTTP + SSE Communication**: Modern web-based integration via Server-Sent Events
 
-- **Tools - AI-Controlled Debugging (69 functions)**: 
+- **Tools - AI-Controlled Debugging (76 functions)**: 
   - Execution control (run, pause, step, run_to)
   - Memory read/write/search/allocate
+  - Memory page protection control
   - Register access (50+ registers including GPR, SSE, AVX)
   - Breakpoint management (software, hardware, memory, conditional, logging)
   - Disassembly and symbol resolution
   - Thread management (list, switch, suspend, resume)
   - Stack trace and analysis
+  - Native debugger data extraction (xrefs, patch list, handle enumeration, TCP connection enumeration)
   - **Dump & Unpacking** (module dump, memory dump, auto-unpacking, OEP detection, IAT reconstruction)
   - **Script execution** (execute x64dbg commands, batch operations)
   - **Context snapshots** (capture and compare debugging state)
@@ -42,6 +44,56 @@ A Model Context Protocol (MCP) server implementation for x64dbg and x32dbg, enab
 - **Security**: Permission-based access control
 - **Extensible**: Plugin architecture for custom methods, resources, and prompts
 
+## Current Plugin Capability Summary
+
+The current plugin exposes the following major capability groups:
+
+- **Debugger control**: query state, run, pause, single-step, run-to, restart, stop
+- **Registers**: read single registers, batch reads, full register dumps, register writes
+- **Memory**: read, write, search, enumerate, allocate, free, query region info, change page protection
+- **Breakpoints**: set/delete/enable/disable/toggle breakpoints, conditions, log text, hit-count reset
+- **Disassembly and symbols**: disassemble at address/range/function, resolve symbols, reverse lookup, comments, labels
+- **Threads and stack**: list threads, inspect current thread, switch/suspend/resume threads, stack trace, stack frame reads
+- **Dump and unpacking**: module dump, region dump, dumpable region analysis, OEP detection, rebuild/fix imports
+- **Script and context**: execute x64dbg commands, batch scripts, read last script result, capture/compare context snapshots
+- **Native x64dbg data**: xref count/list, patch list/query, handle enumeration, TCP connection enumeration
+
+These capabilities are available through both the plugin's MCP tools and the matching example-style wrappers in `x64dbg-mcp.py`.
+
+## Python Client Capability Summary
+
+The repository also includes a Python client script, `x64dbg-mcp.py`, which currently provides:
+
+- **Direct MCP session support**
+  - Health check
+  - `initialize` handshake
+  - raw JSON-RPC calls
+  - Server-Sent Events subscription
+- **MCP metadata access**
+  - `tools/list`
+  - `resources/list`
+  - `resources/templates/list`
+  - `prompts/list`
+- **High-level MCP operations**
+  - `tools/call`
+  - `resources/read`
+  - `prompts/get`
+- **Example-style wrapper calls**
+  - wrapper functions aligned with `x64dbg-example.py`
+  - direct invocation through the script entrypoint
+  - wrapper discovery via `ListServerTools`
+- **Plugin-aligned native feature wrappers**
+  - `XrefGet`
+  - `XrefCount`
+  - `GetPatchList`
+  - `GetPatchAt`
+  - `EnumHandles`
+  - `EnumTcpConnections`
+  - `SetPageRights`
+- **Compatibility behavior**
+  - prefers plugin-native MCP methods when available
+  - falls back to script execution only for selected operations where that behavior is intentionally preserved
+
 ## What's New in v1.0.3
 
 - **Generalized Unpacking (Not UPX-only)**
@@ -59,6 +111,50 @@ A Model Context Protocol (MCP) server implementation for x64dbg and x32dbg, enab
   - Added automatic paused-state recovery for `dump_module`, `dump_analyze_module`, and `dump_detect_oep`
   - Added execution-context recovery for `dump_auto_unpack` when called mid-run outside target module
   - Improved auto-unpack reliability for running-state invocation paths
+
+## New Compared to the Previous Plugin Build
+
+The current build adds and validates several plugin-backed capabilities that were not previously exposed end-to-end:
+
+- **Native xref APIs**
+  - Added `native.get_xrefs`
+  - Added `native.get_xref_count`
+  - `XrefGet` now returns an empty list when an address has no xrefs instead of failing
+
+- **Native patch inspection**
+  - Added `native.list_patches`
+  - Added `native.get_patch_at`
+  - Empty patch states now return structured empty results
+
+- **Native OS object inspection**
+  - Added `native.enum_handles`
+  - Added `native.enum_tcp_connections`
+
+- **Memory protection control**
+  - Added plugin-native `memory.set_protection`
+  - The Python wrapper `SetPageRights` now prefers the native MCP method and falls back to script execution only when needed
+
+- **Permission model update**
+  - Added `native.*` to the default allowed method whitelist so the new native tools are callable without manual patching after deployment
+
+- **Client/plugin alignment**
+  - `x64dbg-mcp.py` now exposes wrapper functions only for capabilities that the plugin can actually serve
+  - Example-style wrappers and plugin tools now match for the newly added native features
+  - The Python client now acts as a complete MCP client, not just a minimal demo script
+
+## Runtime Verification Summary
+
+The current build has been verified with the live plugin and client:
+
+- `XrefGet 0x401000` returns an empty reference list
+- `XrefCount 0x401000` returns `0`
+- `GetPatchList` returns an empty patch list when no patches exist
+- `GetPatchAt 0x401000` returns a structured "not found" error when no patch exists
+- `EnumHandles` returns live handle data from the debuggee
+- `EnumTcpConnections` returns a structured empty list when no TCP connections are present
+- `RegisterGet rip` and other existing example-style wrappers continue to work
+- `x64dbg-mcp.py` successfully drives the validated native APIs end-to-end
+- `build.bat` succeeds for both x64 and x86 outputs
 
 ## Previous Releases
 

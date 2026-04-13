@@ -20,6 +20,7 @@ void MemoryHandler::RegisterMethods() {
     dispatcher.RegisterMethod("memory.enumerate", Enumerate);
     dispatcher.RegisterMethod("memory.allocate", Allocate);
     dispatcher.RegisterMethod("memory.free", Free);
+    dispatcher.RegisterMethod("memory.set_protection", SetProtection);
 }
 
 nlohmann::json MemoryHandler::Read(const nlohmann::json& params) {
@@ -256,6 +257,33 @@ nlohmann::json MemoryHandler::Free(const nlohmann::json& params) {
     return result;
 }
 
+nlohmann::json MemoryHandler::SetProtection(const nlohmann::json& params) {
+    if (!PermissionChecker::Instance().IsMemoryWriteAllowed()) {
+        throw PermissionDeniedException("Memory protection change requires write permission");
+    }
+
+    if (!params.contains("address")) {
+        throw InvalidParamsException("Missing required parameter: address");
+    }
+    if (!params.contains("protection")) {
+        throw InvalidParamsException("Missing required parameter: protection");
+    }
+
+    const std::string addressStr = params["address"].get<std::string>();
+    const std::string protection = params["protection"].get<std::string>();
+    const uint64_t address = StringUtils::ParseAddress(addressStr);
+
+    auto& manager = MemoryManager::Instance();
+    const auto protectionResult = manager.SetProtection(address, protection);
+
+    nlohmann::json result;
+    result["success"] = true;
+    result["address"] = StringUtils::FormatAddress(address);
+    result["old_protection"] = protectionResult.first;
+    result["new_protection"] = protectionResult.second;
+    return result;
+}
+
 std::vector<uint8_t> MemoryHandler::DecodeData(const std::string& data, const std::string& encoding) {
     if (encoding == "hex") {
         return StringUtils::HexToBytes(data);
@@ -285,4 +313,3 @@ std::string MemoryHandler::EncodeData(const std::vector<uint8_t>& data, const st
 }
 
 } // namespace MCP
-

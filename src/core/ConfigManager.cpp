@@ -29,7 +29,7 @@ json ConfigManager::CreateDefaultConfig() const {
         "debug.*", "register.*", "memory.*", "breakpoint.*",
         "disasm.*", "disassembly.*", "module.*", "symbol.*",
         "thread.*", "stack.*", "comment.*", "script.*",
-        "context.*", "dump.*"
+        "context.*", "dump.*", "native.*"
     });
     
     // Logging

@@ -15,6 +15,7 @@
 #include "handlers/ThreadHandler.h"
 #include "handlers/ModuleHandler.h"
 #include "handlers/EventCallbackHandler.h"
+#include "handlers/NativeDebugHandler.h"
 #include "handlers/ScriptHandler.h"
 #include "handlers/ContextHandler.h"
 #include "handlers/DumpHandler.h"
@@ -366,6 +367,7 @@ static void RegisterAllMethods() {
     MCP::StackHandler::RegisterMethods();
     MCP::ThreadHandler::RegisterMethods();
     MCP::ModuleHandler::RegisterMethods();
+    MCP::NativeDebugHandler::RegisterMethods();
     MCP::DumpHandler::RegisterMethods();
     
     // Register script execution methods
@@ -682,3 +684,4 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     }
     return TRUE;
 }
+

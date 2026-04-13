@@ -110,6 +110,14 @@ public:
      */
     bool Free(uint64_t address);
 
+    /**
+     * @brief 修改内存页保护属性
+     * @param address 页内地址
+     * @param protection 保护属性字符串，例如 PAGE_EXECUTE_READ
+     * @return 修改结果，包含旧保护和新保护
+     */
+    std::pair<std::string, std::string> SetProtection(uint64_t address, const std::string& protection);
+
 private:
     MemoryManager() = default;
     ~MemoryManager() = default;
@@ -120,6 +128,7 @@ private:
     bool MatchPattern(const uint8_t* data, const std::vector<uint8_t>& pattern, 
                      const std::vector<bool>& mask);
     std::string ProtectionToString(uint32_t protect);
+    uint32_t StringToProtection(const std::string& protection);
     
     static constexpr size_t MAX_READ_SIZE = 16 * 1024 * 1024;  // 16 MB
     static constexpr size_t MAX_WRITE_SIZE = 16 * 1024 * 1024;

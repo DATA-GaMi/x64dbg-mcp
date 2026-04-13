@@ -449,6 +449,43 @@ bool MemoryManager::Free(uint64_t address) {
     return true;
 }
 
+std::pair<std::string, std::string> MemoryManager::SetProtection(uint64_t address, const std::string& protection) {
+    if (!DebugController::Instance().IsDebugging()) {
+        throw DebuggerNotRunningException();
+    }
+
+    HANDLE hProcess = DbgGetProcessHandle();
+    if (hProcess == nullptr) {
+        throw MCPException("Failed to get process handle for protection change");
+    }
+
+    MEMORY_BASIC_INFORMATION mbi{};
+    SIZE_T queryResult = VirtualQueryEx(
+        hProcess,
+        reinterpret_cast<LPCVOID>(address),
+        &mbi,
+        sizeof(mbi)
+    );
+    if (queryResult == 0) {
+        throw InvalidAddressException("Invalid address: " + StringUtils::FormatAddress(address));
+    }
+
+    const uint32_t newProtect = StringToProtection(protection);
+    DWORD oldProtect = 0;
+    if (!VirtualProtectEx(hProcess, mbi.BaseAddress, mbi.RegionSize, newProtect, &oldProtect)) {
+        throw MCPException("Failed to set page protection at: " + StringUtils::FormatAddress(address));
+    }
+
+    Logger::Info(
+        "Changed page protection at 0x{:X} from {} to {}",
+        address,
+        ProtectionToString(oldProtect),
+        ProtectionToString(newProtect)
+    );
+
+    return {ProtectionToString(oldProtect), ProtectionToString(newProtect)};
+}
+
 std::vector<uint8_t> MemoryManager::ParsePattern(const std::string& pattern) {
     // 解析十六进制模式
     return StringUtils::HexToBytes(pattern);
@@ -479,6 +516,19 @@ std::string MemoryManager::ProtectionToString(uint32_t protect) {
         case 0x80: return "PAGE_EXECUTE_WRITECOPY";
         default: return "UNKNOWN";
     }
+}
+
+uint32_t MemoryManager::StringToProtection(const std::string& protection) {
+    const std::string upper = StringUtils::ToUpper(protection);
+
+    if (upper == "PAGE_NOACCESS" || upper == "NOACCESS" || upper == "N") return PAGE_NOACCESS;
+    if (upper == "PAGE_READONLY" || upper == "READONLY" || upper == "R") return PAGE_READONLY;
+    if (upper == "PAGE_READWRITE" || upper == "READWRITE" || upper == "RW") return PAGE_READWRITE;
+    if (upper == "PAGE_EXECUTE" || upper == "EXECUTE" || upper == "X") return PAGE_EXECUTE;
+    if (upper == "PAGE_EXECUTE_READ" || upper == "EXECUTEREAD" || upper == "RX") return PAGE_EXECUTE_READ;
+    if (upper == "PAGE_EXECUTE_READWRITE" || upper == "EXECUTEREADWRITE" || upper == "RWX") return PAGE_EXECUTE_READWRITE;
+
+    throw InvalidParamsException("Unknown protection value: " + protection);
 }
 
 } // namespace MCP

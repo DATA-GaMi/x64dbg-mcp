@@ -5,6 +5,38 @@ All notable changes to the x64dbg MCP Server Plugin will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-04-13
+
+### Added
+- **New Plugin-Backed Native Debug APIs**
+  - Added `native.get_xrefs` and `native.get_xref_count` for cross-reference enumeration
+  - Added `native.list_patches` and `native.get_patch_at` for patch inspection
+  - Added `native.enum_handles` and `native.enum_tcp_connections` for debugger-visible runtime object enumeration
+- **Memory Protection Control**
+  - Added `memory.set_protection` to change page protections through the plugin
+- **Full Python MCP Client**
+  - Upgraded `x64dbg-mcp.py` from a minimal example into a full MCP client
+  - Added example-style wrapper functions aligned with `x64dbg-example.py`
+  - Added direct tool-style invocation such as `python x64dbg-mcp.py RegisterGet rip`
+
+### Changed
+- **Plugin and Client Capability Alignment**
+  - `x64dbg-mcp.py` now only exposes wrapper functions that are genuinely backed by plugin capabilities
+  - Reconnected `XrefGet`, `XrefCount`, `GetPatchList`, `GetPatchAt`, `EnumHandles`, and `EnumTcpConnections` to real plugin methods instead of placeholders
+- **Permissions and Documentation**
+  - Added `native.*` to the default permission whitelist and runtime plugin configuration
+  - Updated README and Chinese documentation to document the new plugin and Python client functionality
+
+### Fixed
+- **Build and Runtime Reliability**
+  - Fixed `PatchEnum` integration by switching to the correct two-pass enumeration pattern
+  - Fixed x86 narrowing warnings by adding guarded conversion from `uint64_t` to `duint`
+  - Suppressed SDK-originated `C4324` alignment warnings locally in the native debug handler
+  - Fixed `XrefGet` so addresses with no references return an empty result instead of an error
+- **Validation**
+  - Verified the new native APIs end-to-end after rebuilding and redeploying the plugin
+  - Confirmed successful runtime calls for `XrefGet`, `XrefCount`, `GetPatchList`, `GetPatchAt`, `EnumHandles`, and `EnumTcpConnections`
+
 ## [1.0.3] - 2026-03-04
 
 ### Fixed

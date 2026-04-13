@@ -15,6 +15,7 @@ namespace MCP {
  * - memory.enumerate: 枚举内存区域
  * - memory.allocate: 分配内存
  * - memory.free: 释放内存
+ * - memory.set_protection: 修改内存页保护
  */
 class MemoryHandler {
 public:
@@ -72,6 +73,13 @@ private:
      * @return { "success": true }
      */
     static nlohmann::json Free(const nlohmann::json& params);
+
+    /**
+     * @brief 修改内存页保护
+     * @param params { "address": "0x401000", "protection": "PAGE_EXECUTE_READ" }
+     * @return { "address": "0x401000", "old_protection": "...", "new_protection": "..." }
+     */
+    static nlohmann::json SetProtection(const nlohmann::json& params);
     
     // 辅助方法
     static std::vector<uint8_t> DecodeData(const std::string& data, const std::string& encoding);
